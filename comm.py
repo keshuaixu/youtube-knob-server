@@ -11,7 +11,7 @@ ppr = 768
 
 
 class Comm:
-    def __init__(self):
+    def __init__(self, power_lim=0.3):
         self.h = hid.device()
         self.data_in = b''
         self.data_out = b''
@@ -22,6 +22,8 @@ class Comm:
         self.loop_frequency_timer = default_timer()
         self.elapsed_time = 0
         self.hid_loop_semaphore = BoundedSemaphore(value=1)
+        self.d_encoder_position = 0
+        self.power_lim = power_lim
 
     def open(self, vid=0x1234, pid=0x0006):
         while True:
@@ -48,8 +50,9 @@ class Comm:
                 self.loop_frequency_timer = now
 
                 data_in = self.h.read(8)
-                self.encoder_position += struct.unpack('i4x', struct.pack('8B', *data_in))[0]
-                self.h.write(struct.pack('f4x', self.motor_power))
+                self.d_encoder_position = struct.unpack('i4x', struct.pack('8B', *data_in))[0]
+                self.encoder_position += self.d_encoder_position
+                self.h.write(struct.pack('f4x', max(min(self.power_lim, self.motor_power), - self.power_lim)))
                 try:
                     self.hid_loop_semaphore.release()
                 except ValueError:
@@ -69,11 +72,16 @@ class Comm:
         else:
             return self.encoder_position / ppr
 
+    @property
+    def d_encoder_position_scaled(self):
+        return self.d_encoder_position / ppr
 
 if __name__ == '__main__':
     hw = Comm()
     hw.start()
     while 1:
         print(hw.encoder_position)
-        hw.motor_power = -0.01
+        hw.motor_power = 0.1
+        print(hw.elapsed_time)
         time.sleep(0.1)
+
